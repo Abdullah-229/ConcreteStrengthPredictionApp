@@ -3,6 +3,7 @@ from tkinter import messagebox
 import joblib
 import numpy as np
 import database
+import threading
 
 # --- Database Setup ---
 db_conn = database.create_connection()
@@ -170,28 +171,42 @@ def animate_loading():
     update()
 
 # --- Prediction logic with threading ---
-import threading
+import knowledge_base
 
+# --- Prediction logic ---
 def predict_strength():
+    try:
+        input_values = {key: float(entries[key].get()) for key in entries}
+    except ValueError:
+        messagebox.showerror("Input Error", "Please enter valid numbers for all fields!")
+        return
+
+    warnings = knowledge_base.check_inputs(input_values)
+    if warnings:
+        messagebox.showwarning("Input Warning", "\n".join(warnings))
+        result_label.config(text=(
+            f"🔹 Predicted Mean Strength: 0.00 MPa\n\n"
+            f"🔹 80% Probability Strength Range:\n"
+            f"   ➔ Lower Bound (10th percentile): 0.00 MPa\n"
+            f"   ➔ Upper Bound (90th percentile): 0.00 MPa"
+        ), fg=ACCENT3)
+        return
+
     # Disable button during prediction
     submit_btn.config(state=tk.DISABLED, bg="#6a737d")
-    
-    # Clear previous result and show loading
     result_label.config(text="")
     loading_label.pack()
     animate_loading()
-    
-    # Run prediction in separate thread
+
     def run_prediction():
         try:
-            values = []
-            for key in entries:
-                val = float(entries[key].get())
-                values.append(val)
-            X_input = np.array(values).reshape(1, -1)
+            values_for_prediction = [input_values[feature[1]] for feature in features]
+            X_input = np.array(values_for_prediction).reshape(1, -1);
+
             mean_strength = model_mean.predict(X_input)[0]
             q10_strength = model_q10.predict(X_input)[0]
             q90_strength = model_q90.predict(X_input)[0]
+
             result_text = (
                 f"🔹 Predicted Mean Strength: {mean_strength:.2f} MPa\n\n"
                 f"🔹 80% Probability Strength Range:\n"
@@ -200,19 +215,17 @@ def predict_strength():
             )
             result_label.config(text=result_text, fg=ACCENT3)
 
-            # --- Database Insertion ---
             if db_conn:
-                prediction_data = tuple(values) + (mean_strength, q10_strength, q90_strength)
+                prediction_data = tuple(values_for_prediction) + (mean_strength, q10_strength, q90_strength)
                 database.insert_prediction(db_conn, prediction_data)
-        except ValueError:
-            messagebox.showerror("Input Error", "Please enter valid numbers for all fields!")
+
+        except Exception as e:
+            messagebox.showerror("Prediction Error", f"An unexpected error occurred: {e}")
             result_label.config(text="", fg=ACCENT3)
         finally:
-            # Hide loading and re-enable button
             loading_label.pack_forget()
             submit_btn.config(state=tk.NORMAL, bg=BUTTON_BG)
-    
-    # Start the prediction thread
+
     threading.Thread(target=run_prediction).start()
 
 # --- Footer accent ---

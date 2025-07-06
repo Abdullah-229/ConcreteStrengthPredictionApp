@@ -82,3 +82,4 @@ Thumbs.db
 
 # Ignore requirements.txt lock files
 requirements*.lock
+
